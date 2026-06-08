@@ -31,6 +31,13 @@ from fastvideo.distributed.parallel_state import get_sp_world_size
 
 logger = init_logger(__name__)
 
+# 🔍 DETECTING RENORM-NATIVE REGISTER FUSION BACKEND
+try:
+    from renorm import RenormTransformerLayer
+    _RENORM_AVAILABLE = True
+except ImportError:
+    _RENORM_AVAILABLE = False
+
 
 class WanImageEmbedding(torch.nn.Module):
 
@@ -386,8 +393,13 @@ class WanTransformerBlock(nn.Module):
         norm_hidden_states, hidden_states = norm_hidden_states.to(
             orig_dtype), hidden_states.to(orig_dtype)
 
-        # 3. Feed-forward
-        ff_output = self.ffn(norm_hidden_states)
+        # 3. Feed-forward (Optimized SRAM register fusion loop)
+        if _RENORM_AVAILABLE:
+            fused_norm = RenormTransformerLayer(dim=norm_hidden_states.shape[-1])(norm_hidden_states)
+            ff_output = self.ffn(fused_norm)
+        else:
+            ff_output = self.ffn(norm_hidden_states)
+            
         hidden_states = self.mlp_residual(hidden_states, ff_output, c_gate_msa)
         hidden_states = hidden_states.to(orig_dtype)
 
@@ -536,8 +548,13 @@ class WanTransformerBlock_VSA(nn.Module):
         norm_hidden_states, hidden_states = norm_hidden_states.to(
             orig_dtype), hidden_states.to(orig_dtype)
 
-        # 3. Feed-forward
-        ff_output = self.ffn(norm_hidden_states)
+        # 3. Feed-forward (Optimized SRAM register fusion loop)
+        if _RENORM_AVAILABLE:
+            fused_norm = RenormTransformerLayer(dim=norm_hidden_states.shape[-1])(norm_hidden_states)
+            ff_output = self.ffn(fused_norm)
+        else:
+            ff_output = self.ffn(norm_hidden_states)
+            
         hidden_states = self.mlp_residual(hidden_states, ff_output, c_gate_msa)
         hidden_states = hidden_states.to(orig_dtype)
 
